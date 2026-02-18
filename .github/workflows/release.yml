@@ -1,0 +1,97 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!README.md'
+  pull_request:
+    branches: [ main ]
+
+env:
+  libgit_version: "1.9.2"
+
+jobs:
+  version:
+    name: Calculate Version
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.calculate.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+      - name: Calculate
+        id: calculate
+        run: curl -Ls https://solugo.github.io/gitversion/run.sh | GITVERSION=v1.1.1 bash
+  build-lib-linux:
+    name: "Build Static Library (Linux x64)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: "libgit2/libgit2"
+          ref: "v${{env.libgit_version}}"
+          path: "source"
+          fetch-depth: 0
+      - name: Build
+        env:
+          CC: gcc
+        shell: bash
+        run: |
+          mkdir build
+          cd build
+          cmake ../source -S "../source" -G "Ninja" -DBUILD_CLI=OFF -DBUILD_CLAR=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DLIBGIT2_FILENAME=git2 -DUSE_HTTPS=OFF -DUSE_SHA256=Builtin -DUSE_STANDALONE_FUZZERS=ON -DCMAKE_BUILD_TYPE=Release -DUSE_BUNDLED_ZLIB=ON -DDEPRECATE_HARD=ON -DREGEX_BACKEND=builtin -DUSE_GSSAPI=OFF -DUSE_SSH=OFF -DDEBUG_STRICT_ALLOC=ON -DDEBUG_STRICT_OPEN=ON
+          cmake --build . 
+          mkdir artifact
+          cp libgit2.a artifact/
+          cp -r ../source/include artifact
+      - name: Store
+        if: github.ref_name == 'main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'libgit-linux-x64'
+          path: 'build/artifact'
+          retention-days: 1
+  build-lib-windows:
+    name: "Build Static Library (Windows x64)"
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: "libgit2/libgit2"
+          ref: "v${{env.libgit_version}}"
+          path: "source"
+          fetch-depth: 0
+      - name: Set up MinGW
+        id: mingw
+        uses: egor-tensin/setup-mingw@v3
+        with:
+          platform: "x64"
+          version: "8.1.0"
+      - name: Build
+        env:
+          CC: "${{steps.mingw.outputs.gcc}}"
+        shell: bash
+        run: |
+          mkdir build
+          cd build
+          cmake ../source -S "../source" -G "MinGW Makefiles" -DBUILD_CLI=OFF -DBUILD_CLAR=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DLIBGIT2_FILENAME=git2 -DUSE_HTTPS=OFF -DUSE_SHA256=Builtin -DUSE_STANDALONE_FUZZERS=ON -DCMAKE_BUILD_TYPE=Release -DUSE_BUNDLED_ZLIB=ON -DDEPRECATE_HARD=ON -DREGEX_BACKEND=builtin -DUSE_GSSAPI=OFF -DUSE_SSH=OFF -DDEBUG_STRICT_ALLOC=ON -DDEBUG_STRICT_OPEN=ON
+          cmake --build .
+          mkdir artifact
+          cp libgit2.a artifact/
+          cp -r ../source/include artifact
+      - name: Store
+        if: github.ref_name == 'main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'libgit-windows-x64'
+          path: 'build/artifact'
+          retention-days: 1
